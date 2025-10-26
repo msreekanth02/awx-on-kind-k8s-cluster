@@ -1,0 +1,67 @@
+apiVersion: awx.ansible.com/v1beta1
+kind: AWX
+metadata:
+  name: awx
+  namespace: awx
+spec:
+  service_type: ClusterIP
+  ingress_type: ingress
+  ingress_class_name: nginx
+  hostname: awx.local
+  
+  # Resource specifications for performance and self-healing
+  web_resource_requirements:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  
+  task_resource_requirements:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  
+  ee_resource_requirements:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  
+  # PostgreSQL configuration
+  postgres_configuration_secret: awx-postgres-configuration
+  postgres_storage_class: standard
+  postgres_storage_requirements:
+    requests:
+      storage: 8Gi
+  
+  # Projects storage
+  projects_persistence: true
+  projects_storage_class: standard
+  projects_storage_size: 8Gi
+  projects_storage_access_mode: ReadWriteOnce
+  
+  # Auto-scaling and self-healing
+  replicas: 1
+  web_replicas: 2
+  task_replicas: 2
+  
+  # Security context
+  security_context_settings:
+    runAsUser: 1000
+    runAsGroup: 0
+    fsGroup: 0
+    fsGroupChangePolicy: OnRootMismatch
+  
+  # Additional configurations for stability
+  extra_settings:
+    - setting: INSIGHTS_TRACKING_STATE
+      value: "False"
+    - setting: AUTOMATION_ANALYTICS_GATHER_INTERVAL
+      value: "0"
