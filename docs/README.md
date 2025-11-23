@@ -28,24 +28,24 @@ cd awx-on-kind-k8s-cluster
 #    - Create cluster (option 1) 
 #    - Deploy AWX v24.6.1 (option 2)
 #    - Access portal (option 3)
-#
-# 4. Access AWX at:
-#    🌐 Network: http://awx-192-168-1-243.nip.io:9080
-#    🏠 Local:   http://localhost:9080 (via port-forward)
 ```
 
-## 📁 Clean Project Structure
+## 📁 Complete Project Structure
 
 ```
-awx-on-kind-k8s-cluster/              # 🧹 Streamlined to 8 essential files
+awx-on-kind-k8s-cluster/              # 🧹 Production-ready repository
 ├── 📄 setup.sh                       # Quick launcher wrapper
 ├── 📚 README.md                      # This guide (you are here!)
+├── 🏗️ ARCHITECTURE.md               # Visual architecture guide  
+├── 🔄 CLUSTER-MANAGEMENT.md          # Complete cluster lifecycle guide
+├── 🎉 PRODUCTION-READY.md            # Deployment validation summary
 ├── 🔧 resources/                     # Kubernetes configurations
 │   ├── kind-cluster-config.yaml     # 3-node cluster setup
 │   ├── awx-instance.yaml           # AWX v24.6.1 with host IP config
 │   └── awx-pv.yaml                 # Persistent storage setup
 └── 🎯 scripts/                      # Essential management scripts
     ├── setup.sh                    # 🎮 MAIN: Comprehensive menu system
+    ├── cluster-manager.sh          # 🔄 NEW: Complete cluster lifecycle manager  
     ├── access-portal.sh            # Simple portal access
     └── cleanup.sh                  # Resource cleanup
 ```
@@ -75,12 +75,52 @@ The comprehensive `scripts/setup.sh` provides 13 management options:
 - **12) Documentation** - View guides and architecture docs  
 - **13) Exit** - Clean exit with status summary
 
+## 🔄 **NEW: Complete Cluster Management**
+
+### **Interactive Cluster Manager**
+```bash
+./scripts/cluster-manager.sh  # Full interactive lifecycle management
+```
+
+**🎮 9 Management Options:**
+1. **🩺 Health check** - Complete system diagnostics
+2. **🔄 Restart cluster** - Restart everything (preserve data)  
+3. **🚀 Start cluster** - Resume from stop
+4. **🏗️ Create fresh** - Complete rebuild 
+5. **💥 Destroy cluster** - Remove everything ⚠️
+6. **🌐 Access portal** - Smart portal access
+7. **🛑 Stop cluster** - Stop but preserve data
+8. **📚 Documentation** - View guides  
+9. **❌ Exit** - Clean exit
+
+### **Direct Commands**
+```bash
+# Health check & diagnostics
+./scripts/cluster-manager.sh health
+
+# Restart cluster (preserve data)  
+./scripts/cluster-manager.sh restart
+
+# Create fresh cluster
+./scripts/cluster-manager.sh create
+
+# Access portal (smart detection)
+./scripts/cluster-manager.sh access
+
+# Emergency rebuild
+./scripts/cluster-manager.sh destroy
+./scripts/cluster-manager.sh create
+```
+
 ## ⚡ Quick Access Commands
 
 | Purpose | Command | Description |
 |---------|---------|-------------|
 | **🎮 Full Menu** | `./scripts/setup.sh` | Complete interactive management |
 | **🚀 Quick Launch** | `./setup.sh` | Wrapper script (calls scripts/setup.sh) |
+| **🎮 Full Menu** | `./scripts/setup.sh` | Complete interactive management |
+| **🚀 Quick Launch** | `./setup.sh` | Wrapper script (calls scripts/setup.sh) |
+| **🔄 Cluster Manager** | `./scripts/cluster-manager.sh` | **NEW: Complete cluster lifecycle** |
 | **🌐 Portal Access** | `./scripts/access-portal.sh` | Direct portal access |
 | **🧹 Cleanup** | `./scripts/cleanup.sh` | Resource cleanup |
 
