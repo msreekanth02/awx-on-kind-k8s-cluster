@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# AWX on Kind - Interactive Setup Manager
-# A user-friendly menu system for managing AWX deployments
+# AWX on Kind - Complete Menu-Based Setup System
+# A comprehensive, user-friendly menu system for managing AWX deployments
 
 set -e
 
@@ -19,20 +19,766 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RESOURCES_DIR="$PROJECT_ROOT/resources"
-DOCS_DIR="$PROJECT_ROOT/docs"
 CLUSTER_NAME="awx-cluster"
 AWX_NAMESPACE="awx"
-BACKUP_DIR="/tmp/awx-backups"
 
 # Utility functions
 print_header() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                          ${WHITE}AWX on Kind - Setup Manager${CYAN}                         ║${NC}"
-    echo -e "${CYAN}║                        ${WHITE}Interactive Cluster Management${CYAN}                       ║${NC}"
+    echo -e "${CYAN}║                     ${WHITE}AWX on Kind - Complete Setup System${CYAN}                     ║${NC}"
+    echo -e "${CYAN}║                        ${WHITE}Menu-Based Cluster Management${CYAN}                        ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
+
+print_status() {
+    local status="$1"
+    local message="$2"
+    case $status in
+        "success") echo -e "${GREEN}✅ $message${NC}" ;;
+        "error")   echo -e "${RED}❌ $message${NC}" ;;
+        "warning") echo -e "${YELLOW}⚠️  $message${NC}" ;;
+        "info")    echo -e "${BLUE}ℹ️  $message${NC}" ;;
+        "working") echo -e "${PURPLE}🔄 $message${NC}" ;;
+    esac
+}
+
+press_enter() {
+    echo ""
+    echo -e "${CYAN}Press Enter to continue...${NC}"
+    read -r
+}
+
+spinner() {
+    local pid=$1
+    local delay=0.1
+    local spinstr='|/-\'
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
+
+# System checks
+check_prerequisites() {
+    local missing=0
+    
+    echo -e "${WHITE}🔍 Checking Prerequisites...${NC}"
+    echo ""
+    
+    # Check Docker
+    if command -v docker &> /dev/null && docker info &> /dev/null; then
+        print_status "success" "Docker is running"
+    else
+        print_status "error" "Docker is not running or not installed"
+        missing=1
+    fi
+    
+    # Check kubectl
+    if command -v kubectl &> /dev/null; then
+        print_status "success" "kubectl is installed"
+    else
+        print_status "error" "kubectl is not installed"
+        missing=1
+    fi
+    
+    # Check kind
+    if command -v kind &> /dev/null; then
+        print_status "success" "kind is installed"
+    else
+        print_status "error" "kind is not installed"
+        missing=1
+    fi
+    
+    if [ $missing -eq 1 ]; then
+        echo ""
+        print_status "error" "Missing prerequisites detected!"
+        echo ""
+        echo -e "${YELLOW}Please install missing tools:${NC}"
+        echo "  Docker: brew install --cask docker"
+        echo "  kubectl: brew install kubectl"
+        echo "  kind: brew install kind"
+        echo ""
+        return 1
+    fi
+    
+    return 0
+}
+
+# Status functions
+get_cluster_status() {
+    if ! command -v kind &> /dev/null; then
+        echo "no-kind"
+        return
+    fi
+    
+    if kind get clusters 2>/dev/null | grep -q "^$CLUSTER_NAME$"; then
+        if kubectl cluster-info &> /dev/null; then
+            echo "running"
+        else
+            echo "exists-not-accessible"
+        fi
+    else
+        echo "not-exists"
+    fi
+}
+
+get_awx_status() {
+    local cluster_status=$(get_cluster_status)
+    
+    if [ "$cluster_status" != "running" ]; then
+        echo "no-cluster"
+        return
+    fi
+    
+    if ! kubectl get namespace "$AWX_NAMESPACE" &> /dev/null; then
+        echo "no-namespace"
+        return
+    fi
+    
+    if ! kubectl get awx -n "$AWX_NAMESPACE" &> /dev/null; then
+        echo "not-deployed"
+        return
+    fi
+    
+    local web_ready=$(kubectl get pods -n "$AWX_NAMESPACE" -l app.kubernetes.io/name=awx-web --no-headers 2>/dev/null | awk '{print $2}' | grep -c "3/3" || echo 0)
+    local task_ready=$(kubectl get pods -n "$AWX_NAMESPACE" -l app.kubernetes.io/name=awx-task --no-headers 2>/dev/null | awk '{print $2}' | grep -c "4/4" || echo 0)
+    
+    if [ $web_ready -gt 0 ] && [ $task_ready -gt 0 ]; then
+        echo "ready"
+    else
+        echo "deploying"
+    fi
+}
+
+# Core functions
+create_cluster() {
+    print_header
+    echo -e "${WHITE}🏗️  Creating Kind Cluster${NC}"
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    
+    local cluster_status=$(get_cluster_status)
+    if [ "$cluster_status" = "running" ]; then
+        print_status "warning" "Cluster '$CLUSTER_NAME' already exists and is running"
+        echo ""
+        echo "Would you like to:"
+        echo "1) Use existing cluster"
+        echo "2) Delete and recreate cluster"
+        echo "3) Return to main menu"
+        echo ""
+        read -p "Choose option (1-3): " choice
+        
+        case $choice in
+            1) 
+                print_status "info" "Using existing cluster"
+                press_enter
+                return 0
+                ;;
+            2)
+                echo ""
+                print_status "working" "Deleting existing cluster..."
+                kind delete cluster --name="$CLUSTER_NAME"
+                sleep 2
+                ;;
+            3) return 0 ;;
+            *) 
+                print_status "error" "Invalid choice"
+                press_enter
+                return 1
+                ;;
+        esac
+    fi
+    
+    echo ""
+    print_status "working" "Creating 3-node Kind cluster with port mappings..."
+    echo "This may take a few minutes..."
+    
+    if kind create cluster --config="$RESOURCES_DIR/kind-cluster-config.yaml" --name="$CLUSTER_NAME"; then
+        print_status "success" "Kind cluster created successfully!"
+        echo ""
+        print_status "info" "Cluster details:"
+        kubectl get nodes -o wide
+        echo ""
+        print_status "info" "Port mappings:"
+        docker port "$CLUSTER_NAME-control-plane" | grep -E "(80|443)"
+    else
+        print_status "error" "Failed to create cluster"
+        press_enter
+        return 1
+    fi
+    
+    echo ""
+    print_status "info" "Next step: Deploy AWX using option 2 from the main menu"
+    press_enter
+}
+
+deploy_awx() {
+    print_header
+    echo -e "${WHITE}🚀 Deploying AWX v24.6.1${NC}"
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    
+    local cluster_status=$(get_cluster_status)
+    if [ "$cluster_status" != "running" ]; then
+        print_status "error" "No running cluster found. Please create a cluster first."
+        press_enter
+        return 1
+    fi
+    
+    local awx_status=$(get_awx_status)
+    if [ "$awx_status" = "ready" ]; then
+        print_status "warning" "AWX is already deployed and ready"
+        press_enter
+        return 0
+    fi
+    
+    echo "📋 AWX Deployment Steps:"
+    echo "1. Install NGINX Ingress Controller"
+    echo "2. Create AWX namespace and storage"
+    echo "3. Install AWX Operator v2.19.1"
+    echo "4. Deploy PostgreSQL 15"
+    echo "5. Deploy AWX instance"
+    echo "6. Wait for deployment completion"
+    echo ""
+    read -p "Proceed with deployment? (y/N): " confirm
+    
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        echo "Deployment cancelled"
+        press_enter
+        return 0
+    fi
+    
+    echo ""
+    
+    # Step 1: Install NGINX Ingress
+    print_status "working" "Step 1: Installing NGINX Ingress Controller..."
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml > /dev/null
+    
+    echo "Waiting for NGINX Ingress to be ready..."
+    kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=300s
+    print_status "success" "NGINX Ingress Controller ready"
+    
+    # Step 2: Create namespace and storage
+    print_status "working" "Step 2: Creating AWX namespace and storage..."
+    kubectl create namespace "$AWX_NAMESPACE" 2>/dev/null || true
+    kubectl apply -f "$RESOURCES_DIR/awx-pv.yaml" > /dev/null
+    print_status "success" "Namespace and storage created"
+    
+    # Step 3: Install AWX Operator
+    print_status "working" "Step 3: Installing AWX Operator v2.19.1..."
+    kubectl apply -k https://github.com/ansible/awx-operator/config/default?ref=2.19.1 > /dev/null
+    
+    echo "Waiting for AWX Operator to be ready..."
+    sleep 10
+    if kubectl get deployment awx-operator-controller-manager -n "$AWX_NAMESPACE" >/dev/null 2>&1; then
+        kubectl wait --for=condition=available deployment/awx-operator-controller-manager -n "$AWX_NAMESPACE" --timeout=300s
+    else
+        kubectl wait --for=condition=available deployment/awx-operator-controller-manager -n awx-operator-system --timeout=300s
+    fi
+    print_status "success" "AWX Operator ready"
+    
+    # Step 4: Deploy PostgreSQL
+    print_status "working" "Step 4: Deploying PostgreSQL 15..."
+    
+    # Create PostgreSQL secrets
+    cat << 'EOF' | kubectl apply -f - > /dev/null
+apiVersion: v1
+kind: Secret
+metadata:
+  name: awx-postgres-configuration
+  namespace: awx
+stringData:
+  host: awx-postgres-15
+  port: "5432"
+  database: awx
+  username: awx
+  password: awxpass
+  sslmode: prefer
+  type: managed
+EOF
+
+    cat << 'EOF' | kubectl apply -f - > /dev/null
+apiVersion: v1
+kind: Secret
+metadata:
+  name: awx-admin-password
+  namespace: awx
+stringData:
+  password: kzUfY19ptzjlURRkEFYtnZiLxDzLd1iE
+EOF
+
+    # Deploy PostgreSQL
+    cat << 'EOF' | kubectl apply -f - > /dev/null
+apiVersion: v1
+kind: Service
+metadata:
+  name: awx-postgres-15
+  namespace: awx
+  labels:
+    app.kubernetes.io/name: postgres
+spec:
+  ports:
+  - port: 5432
+    name: postgres
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: awx-postgres-15
+  namespace: awx
+spec:
+  serviceName: awx-postgres-15
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15
+        env:
+        - name: POSTGRES_DB
+          value: awx
+        - name: POSTGRES_USER
+          value: awx
+        - name: POSTGRES_PASSWORD
+          value: awxpass
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 8Gi
+EOF
+
+    echo "Waiting for PostgreSQL to be ready..."
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgres -n "$AWX_NAMESPACE" --timeout=300s
+    print_status "success" "PostgreSQL 15 ready"
+    
+    # Step 5: Deploy AWX instance
+    print_status "working" "Step 5: Deploying AWX instance..."
+    kubectl apply -f "$RESOURCES_DIR/awx-instance.yaml" > /dev/null
+    
+    # Step 6: Wait for deployment
+    print_status "working" "Step 6: Waiting for AWX deployment to complete..."
+    echo "This may take 5-10 minutes..."
+    
+    # Wait for AWX pods
+    local timeout=600
+    local elapsed=0
+    while [ $elapsed -lt $timeout ]; do
+        local web_ready=$(kubectl get pods -n "$AWX_NAMESPACE" -l app.kubernetes.io/name=awx-web --no-headers 2>/dev/null | awk '{print $2}' | grep -c "3/3" || echo 0)
+        local task_ready=$(kubectl get pods -n "$AWX_NAMESPACE" -l app.kubernetes.io/name=awx-task --no-headers 2>/dev/null | awk '{print $2}' | grep -c "4/4" || echo 0)
+        
+        if [ $web_ready -gt 0 ] && [ $task_ready -gt 0 ]; then
+            break
+        fi
+        
+        sleep 10
+        elapsed=$((elapsed + 10))
+        echo "Waiting... ($elapsed/${timeout}s)"
+    done
+    
+    if [ $elapsed -ge $timeout ]; then
+        print_status "warning" "Deployment timeout reached. AWX may still be starting..."
+    else
+        print_status "success" "AWX deployment completed successfully!"
+    fi
+    
+    echo ""
+    print_status "info" "AWX Status:"
+    kubectl get pods -n "$AWX_NAMESPACE"
+    
+    echo ""
+    print_status "success" "🎉 AWX v24.6.1 with Operator v2.19.1 is ready!"
+    echo ""
+    print_status "info" "Next step: Access AWX using option 3 from the main menu"
+    press_enter
+}
+
+access_awx() {
+    print_header
+    echo -e "${WHITE}🌐 Access AWX Portal${NC}"
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    
+    local awx_status=$(get_awx_status)
+    if [ "$awx_status" != "ready" ]; then
+        print_status "error" "AWX is not ready. Please deploy AWX first."
+        press_enter
+        return 1
+    fi
+    
+    echo "🔑 AWX Access Information:"
+    echo ""
+    local admin_password=$(kubectl get secret awx-admin-password -n "$AWX_NAMESPACE" -o jsonpath='{.data.password}' 2>/dev/null | base64 --decode)
+    echo "   URL: http://localhost:9080"
+    echo "   Username: admin"
+    echo "   Password: $admin_password"
+    echo ""
+    
+    echo "Choose access method:"
+    echo ""
+    echo "1) Quick Access (auto-start port-forward & open browser)"
+    echo "2) Manual Port-Forward (you open browser manually)"
+    echo "3) Use existing access script"
+    echo "4) Return to main menu"
+    echo ""
+    read -p "Choose option (1-4): " choice
+    
+    case $choice in
+        1)
+            echo ""
+            print_status "working" "Starting port-forward and opening browser..."
+            
+            # Kill existing port-forwards
+            pkill -f "kubectl.*port-forward.*9080" 2>/dev/null || true
+            sleep 2
+            
+            # Start port-forward in background
+            kubectl port-forward -n "$AWX_NAMESPACE" svc/awx-service 9080:80 >/dev/null 2>&1 &
+            local pf_pid=$!
+            
+            # Wait for connection
+            sleep 3
+            
+            # Test connection
+            if curl -s -o /dev/null -w "%{http_code}" http://localhost:9080/ | grep -q "200"; then
+                print_status "success" "AWX Portal is accessible!"
+                echo ""
+                open http://localhost:9080
+                print_status "info" "Browser opened to http://localhost:9080"
+                echo ""
+                echo "💡 Port-forward is running in background (PID: $pf_pid)"
+                echo "   To stop: pkill -f 'kubectl.*port-forward.*9080'"
+            else
+                print_status "error" "Could not connect to AWX portal"
+                kill $pf_pid 2>/dev/null || true
+            fi
+            ;;
+        2)
+            echo ""
+            print_status "info" "Starting manual port-forward..."
+            echo ""
+            echo "Run this command in a separate terminal:"
+            echo "  kubectl port-forward -n $AWX_NAMESPACE svc/awx-service 9080:80"
+            echo ""
+            echo "Then open: http://localhost:9080"
+            ;;
+        3)
+            echo ""
+            print_status "info" "Using access script..."
+            "$SCRIPT_DIR/access-portal.sh"
+            ;;
+        4) return 0 ;;
+        *)
+            print_status "error" "Invalid choice"
+            ;;
+    esac
+    
+    echo ""
+    press_enter
+}
+
+show_status() {
+    print_header
+    echo -e "${WHITE}📊 System Status Dashboard${NC}"
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    
+    local cluster_status=$(get_cluster_status)
+    local awx_status=$(get_awx_status)
+    
+    echo "🏗️  Infrastructure Status:"
+    case $cluster_status in
+        "running") echo -e "   Cluster: ${GREEN}Running (3 nodes)${NC}" ;;
+        "exists-not-accessible") echo -e "   Cluster: ${YELLOW}Exists but not accessible${NC}" ;;
+        "not-exists") echo -e "   Cluster: ${RED}Not created${NC}" ;;
+        "no-kind") echo -e "   Cluster: ${RED}Kind not available${NC}" ;;
+    esac
+    
+    case $awx_status in
+        "ready") echo -e "   AWX: ${GREEN}Ready and operational${NC}" ;;
+        "deploying") echo -e "   AWX: ${YELLOW}Deploying...${NC}" ;;
+        "not-deployed") echo -e "   AWX: ${RED}Not deployed${NC}" ;;
+        "no-namespace"|"no-cluster") echo -e "   AWX: ${RED}Not available${NC}" ;;
+    esac
+    
+    if [ "$cluster_status" = "running" ]; then
+        echo ""
+        echo "📦 Kubernetes Resources:"
+        kubectl get nodes --no-headers | wc -l | xargs printf "   Nodes: %s\n"
+        if [ "$awx_status" != "no-cluster" ] && [ "$awx_status" != "no-namespace" ]; then
+            kubectl get pods -n "$AWX_NAMESPACE" --no-headers 2>/dev/null | wc -l | xargs printf "   AWX Pods: %s\n"
+        fi
+        
+        echo ""
+        echo "🌐 Network Configuration:"
+        echo "   Host IP: 192.168.1.243"
+        echo "   Kind Ports: 9080 (HTTP), 9443 (HTTPS)"
+        docker port "$CLUSTER_NAME-control-plane" 2>/dev/null | grep -E "(80|443)" | sed 's/^/   /' || true
+    fi
+    
+    if [ "$awx_status" = "ready" ]; then
+        echo ""
+        echo "🔑 Access Information:"
+        local admin_password=$(kubectl get secret awx-admin-password -n "$AWX_NAMESPACE" -o jsonpath='{.data.password}' 2>/dev/null | base64 --decode)
+        echo "   URL: http://localhost:9080 (with port-forward)"
+        echo "   Username: admin"
+        echo "   Password: $admin_password"
+        
+        echo ""
+        echo "📊 AWX Pods Status:"
+        kubectl get pods -n "$AWX_NAMESPACE" 2>/dev/null || echo "   No pods found"
+    fi
+    
+    echo ""
+    press_enter
+}
+
+health_check() {
+    print_header
+    echo -e "${WHITE}🔧 System Health Check${NC}"
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    
+    local total_checks=0
+    local passed_checks=0
+    
+    check_item() {
+        local description="$1"
+        local command="$2"
+        
+        total_checks=$((total_checks + 1))
+        echo -n "[$total_checks] $description... "
+        
+        if eval "$command" &>/dev/null; then
+            echo -e "${GREEN}✅ PASS${NC}"
+            passed_checks=$((passed_checks + 1))
+            return 0
+        else
+            echo -e "${RED}❌ FAIL${NC}"
+            return 1
+        fi
+    }
+    
+    echo "🏗️  Infrastructure Checks:"
+    check_item "Docker is running" "docker info"
+    check_item "kubectl is available" "command -v kubectl"
+    check_item "Kind is available" "command -v kind"
+    check_item "Kind cluster exists" "kind get clusters | grep -q $CLUSTER_NAME"
+    check_item "Cluster is accessible" "kubectl cluster-info"
+    
+    echo ""
+    echo "📦 AWX Components:"
+    check_item "AWX namespace exists" "kubectl get namespace $AWX_NAMESPACE"
+    check_item "AWX Operator is running" "kubectl get pods -n $AWX_NAMESPACE | grep awx-operator-controller-manager | grep -q Running"
+    check_item "PostgreSQL is running" "kubectl get pods -n $AWX_NAMESPACE | grep awx-postgres | grep -q Running"
+    check_item "AWX instance exists" "kubectl get awx -n $AWX_NAMESPACE"
+    
+    if kubectl get pods -n "$AWX_NAMESPACE" | grep -q awx-web; then
+        check_item "AWX web pods ready" "kubectl get pods -n $AWX_NAMESPACE | grep awx-web | grep -q '3/3.*Running'"
+        check_item "AWX task pods ready" "kubectl get pods -n $AWX_NAMESPACE | grep awx-task | grep -q '4/4.*Running'"
+    fi
+    
+    echo ""
+    echo "📊 Summary:"
+    local percentage=$((passed_checks * 100 / total_checks))
+    
+    if [ $passed_checks -eq $total_checks ]; then
+        echo -e "${GREEN}🎉 ALL CHECKS PASSED! ($passed_checks/$total_checks)${NC}"
+        echo -e "${GREEN}✅ AWX is fully operational!${NC}"
+    elif [ $percentage -ge 80 ]; then
+        echo -e "${YELLOW}⚠️  MOSTLY WORKING ($passed_checks/$total_checks - $percentage%)${NC}"
+        echo -e "${YELLOW}🔧 Minor issues detected${NC}"
+    else
+        echo -e "${RED}❌ ISSUES DETECTED ($passed_checks/$total_checks - $percentage%)${NC}"
+        echo -e "${RED}🚨 Significant problems found${NC}"
+    fi
+    
+    echo ""
+    press_enter
+}
+
+cleanup_resources() {
+    print_header
+    echo -e "${WHITE}🧹 Cleanup Resources${NC}"
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    
+    echo "What would you like to clean up?"
+    echo ""
+    echo "1) Stop port-forwarding only"
+    echo "2) Delete AWX deployment (keep cluster)"
+    echo "3) Delete entire Kind cluster"
+    echo "4) Complete cleanup (everything)"
+    echo "5) Return to main menu"
+    echo ""
+    read -p "Choose option (1-5): " choice
+    
+    case $choice in
+        1)
+            echo ""
+            print_status "working" "Stopping port-forward processes..."
+            pkill -f "kubectl.*port-forward" 2>/dev/null || true
+            print_status "success" "All port-forwards stopped"
+            ;;
+        2)
+            echo ""
+            read -p "Are you sure you want to delete AWX deployment? (y/N): " confirm
+            if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                print_status "working" "Deleting AWX deployment..."
+                kubectl delete namespace "$AWX_NAMESPACE" --ignore-not-found=true
+                print_status "success" "AWX deployment deleted"
+            fi
+            ;;
+        3)
+            echo ""
+            read -p "Are you sure you want to delete the Kind cluster? (y/N): " confirm
+            if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                print_status "working" "Deleting Kind cluster..."
+                kind delete cluster --name="$CLUSTER_NAME"
+                print_status "success" "Kind cluster deleted"
+            fi
+            ;;
+        4)
+            echo ""
+            read -p "Are you sure you want to delete EVERYTHING? (y/N): " confirm
+            if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                print_status "working" "Complete cleanup..."
+                pkill -f "kubectl.*port-forward" 2>/dev/null || true
+                kind delete cluster --name="$CLUSTER_NAME" 2>/dev/null || true
+                docker system prune -f > /dev/null 2>&1 || true
+                print_status "success" "Complete cleanup finished"
+            fi
+            ;;
+        5) return 0 ;;
+        *)
+            print_status "error" "Invalid choice"
+            ;;
+    esac
+    
+    echo ""
+    press_enter
+}
+
+show_main_menu() {
+    local cluster_status=$(get_cluster_status)
+    local awx_status=$(get_awx_status)
+    
+    print_header
+    
+    echo -e "${WHITE}📊 Current Status:${NC}"
+    case $cluster_status in
+        "running") echo -e "   Cluster: ${GREEN}Running${NC}" ;;
+        "exists-not-accessible") echo -e "   Cluster: ${YELLOW}Exists but not accessible${NC}" ;;
+        "not-exists") echo -e "   Cluster: ${RED}Not created${NC}" ;;
+        "no-kind") echo -e "   Cluster: ${RED}Kind not available${NC}" ;;
+    esac
+    
+    case $awx_status in
+        "ready") echo -e "   AWX: ${GREEN}Ready and operational${NC}" ;;
+        "deploying") echo -e "   AWX: ${YELLOW}Deploying...${NC}" ;;
+        "not-deployed") echo -e "   AWX: ${RED}Not deployed${NC}" ;;
+        "no-namespace"|"no-cluster") echo -e "   AWX: ${RED}Not available${NC}" ;;
+    esac
+    
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo -e "${WHITE}📚 Main Menu${NC}"
+    echo ""
+    echo " 🏗️  Setup & Deployment:"
+    echo "   1) Check prerequisites"
+    echo "   2) Create Kind cluster"
+    echo "   3) Deploy AWX v24.6.1"
+    echo "   4) Complete setup (2+3)"
+    echo ""
+    echo " 🌐 Access & Management:"
+    echo "   5) Access AWX portal"
+    echo "   6) Show system status"
+    echo "   7) Health check"
+    echo ""
+    echo " 🔧 Maintenance:"
+    echo "   8) Cleanup resources"
+    echo "   9) Exit"
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo ""
+}
+
+# Main program loop
+main() {
+    while true; do
+        show_main_menu
+        read -p "Choose option (1-9): " choice
+        
+        case $choice in
+            1)
+                print_header
+                if check_prerequisites; then
+                    print_status "success" "All prerequisites are satisfied!"
+                    press_enter
+                else
+                    press_enter
+                fi
+                ;;
+            2) create_cluster ;;
+            3) deploy_awx ;;
+            4)
+                create_cluster
+                if [ $? -eq 0 ]; then
+                    deploy_awx
+                fi
+                ;;
+            5) access_awx ;;
+            6) show_status ;;
+            7) health_check ;;
+            8) cleanup_resources ;;
+            9)
+                echo ""
+                echo -e "${GREEN}Thank you for using AWX on Kind!${NC}"
+                echo ""
+                exit 0
+                ;;
+            *)
+                print_status "error" "Invalid choice. Please select 1-9."
+                press_enter
+                ;;
+        esac
+    done
+}
+
+# Start the program
+main
 
 print_status() {
     local status="$1"
@@ -236,6 +982,34 @@ show_status_dashboard() {
         fi
         echo ""
     fi
+}
+
+show_complete_access_guide() {
+    print_header
+    echo -e "${WHITE}🌐 Complete Access Guide${NC}"
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    
+    if [ -f "$SCRIPT_DIR/complete-access-guide.sh" ]; then
+        print_status "info" "Running complete access guide..."
+        echo ""
+        bash "$SCRIPT_DIR/complete-access-guide.sh"
+    else
+        print_status "error" "Complete access guide script not found"
+        echo ""
+        echo "Expected location: $SCRIPT_DIR/complete-access-guide.sh"
+        echo ""
+        echo "Manual access information:"
+        echo "- Network URL: http://awx-192-168-1-243.nip.io:9080"
+        echo "- Local URL: http://localhost:9080 (with port forwarding)"
+        
+        if kubectl get secret awx-admin-password -n awx &>/dev/null; then
+            echo "- Username: admin"
+            echo "- Password: $(kubectl get secret awx-admin-password -n awx -o jsonpath='{.data.password}' | base64 --decode)"
+        fi
+    fi
+    
+    press_enter
 }
 
 create_cluster() {
@@ -916,15 +1690,16 @@ show_main_menu() {
     echo "   5) Show status dashboard"
     echo "   6) Update & scale AWX"
     echo "   7) Backup & restore"
+    echo "   8) Complete access guide"
     echo ""
     echo " 🔧 Maintenance:"
-    echo "   8) Troubleshooting"
-    echo "   9) Cleanup resources"
+    echo "   9) Troubleshooting"
+    echo "   10) Cleanup resources"
     echo ""
     echo " ❓ Help & Info:"
-    echo "   10) Prerequisites check"
-    echo "   11) View documentation"
-    echo "   12) Exit"
+    echo "   11) Prerequisites check"
+    echo "   12) View documentation"
+    echo "   13) Exit"
     echo ""
     echo "═══════════════════════════════════════════════════════════════════════════════"
     echo ""
@@ -1005,7 +1780,7 @@ main() {
     
     while true; do
         show_main_menu
-        read -p "Enter your choice (1-12): " choice
+        read -p "Enter your choice (1-13): " choice
         
         case $choice in
             1) create_cluster ;;
@@ -1015,15 +1790,16 @@ main() {
             5) show_status_dashboard ;;
             6) update_scale ;;
             7) backup_restore ;;
-            8) troubleshoot ;;
-            9) cleanup_resources ;;
-            10) 
+            8) show_complete_access_guide ;;
+            9) troubleshoot ;;
+            10) cleanup_resources ;;
+            11) 
                 print_header
                 check_prerequisites
                 press_enter
                 ;;
-            11) view_documentation ;;
-            12)
+            12) view_documentation ;;
+            13)
                 print_header
                 echo -e "${GREEN}Thank you for using AWX on Kind Setup Manager!${NC}"
                 echo ""
@@ -1036,7 +1812,7 @@ main() {
                 exit 0
                 ;;
             *)
-                print_status "error" "Invalid choice. Please enter a number between 1-12."
+                print_status "error" "Invalid choice. Please enter a number between 1-13."
                 press_enter
                 ;;
         esac

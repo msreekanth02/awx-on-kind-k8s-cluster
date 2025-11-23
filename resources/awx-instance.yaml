@@ -1,67 +1,72 @@
+---
 apiVersion: awx.ansible.com/v1beta1
 kind: AWX
 metadata:
   name: awx
   namespace: awx
 spec:
-  service_type: ClusterIP
-  ingress_type: ingress
-  ingress_class_name: nginx
-  hostname: awx.local
+  # Use external PostgreSQL
+  postgres_configuration_secret: awx-postgres-configuration
   
-  # Resource specifications for performance and self-healing
+  # Admin user setup
+  admin_user: admin
+  admin_password_secret: awx-admin-password
+  
+  # Service configuration
+  service_type: ClusterIP
+  
+  # Ingress configuration - using host IP
+  ingress_type: Ingress
+  ingress_class_name: nginx
+  hostname: awx-192-168-1-243.nip.io
+  
+  # Resource configuration - increased memory for initialization
   web_resource_requirements:
     requests:
-      cpu: 1000m
-      memory: 2Gi
+      cpu: 200m
+      memory: 1Gi
     limits:
       cpu: 2000m
-      memory: 4Gi
-  
+      memory: 2Gi
+      
   task_resource_requirements:
     requests:
-      cpu: 500m
+      cpu: 200m
       memory: 1Gi
     limits:
-      cpu: 1000m
+      cpu: 2000m
       memory: 2Gi
-  
+      
   ee_resource_requirements:
     requests:
-      cpu: 500m
-      memory: 1Gi
+      cpu: 50m
+      memory: 64Mi
     limits:
-      cpu: 1000m
-      memory: 2Gi
+      cpu: 200m
+      memory: 256Mi
   
-  # PostgreSQL configuration
-  postgres_configuration_secret: awx-postgres-configuration
-  postgres_storage_class: standard
-  postgres_storage_requirements:
+  # Redis configuration
+  redis_resource_requirements:
     requests:
-      storage: 8Gi
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
   
-  # Projects storage
-  projects_persistence: true
-  projects_storage_class: standard
-  projects_storage_size: 8Gi
-  projects_storage_access_mode: ReadWriteOnce
+  # Disable projects persistence to avoid volume issues
+  projects_persistence: false
   
-  # Auto-scaling and self-healing
-  replicas: 1
-  web_replicas: 2
-  task_replicas: 2
+  # Simple configuration
+  auto_upgrade: false
   
-  # Security context
-  security_context_settings:
-    runAsUser: 1000
-    runAsGroup: 0
-    fsGroup: 0
-    fsGroupChangePolicy: OnRootMismatch
-  
-  # Additional configurations for stability
+  # Host IP configuration
   extra_settings:
-    - setting: INSIGHTS_TRACKING_STATE
-      value: "False"
-    - setting: AUTOMATION_ANALYTICS_GATHER_INTERVAL
-      value: "0"
+    - setting: ALLOWED_HOSTS
+      value: "['*', 'awx-192-168-1-243.nip.io', '192.168.1.243', 'localhost', 'awx.local']"
+    - setting: USE_TZ
+      value: "True"
+  
+  # Single replica for simplicity
+  web_replicas: 1
+  task_replicas: 1
