@@ -1,0 +1,63 @@
+# AWX on Kind Project - Git Ignore File
+
+# Backup directories (keep backups out of git)
+backups/
+backup-*/
+awx-backup*/
+*.backup/
+
+# Sensitive data files
+*.sql
+*.dump
+admin-password.txt
+secrets/
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+*.log
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Node modules (if any frontend tools are added)
+node_modules/
+
+# Python cache (if any Python tools are added)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Local configuration overrides
+config.local.*
+*.local
+
+# Build artifacts
+dist/
+build/
+
+# Certificates and keys
+*.crt
+*.key
+*.pem
+*.p12
+
+# Any local backup attempts
+local-backups/
+data-backup*/
