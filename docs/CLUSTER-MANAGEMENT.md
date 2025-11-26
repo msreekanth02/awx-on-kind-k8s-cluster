@@ -15,6 +15,8 @@ This document provides step-by-step commands for all cluster lifecycle operation
 | **🩺 Health Check** | `./scripts/cluster-manager.sh health` | System diagnostics |
 | **🔄 Restart** | `./scripts/cluster-manager.sh restart` | Restart everything |
 | **🏗️ Fresh Deploy** | `./scripts/cluster-manager.sh create` | Clean deployment |
+| **💾 Backup Data** | `./scripts/backup-awx-data.sh` | Backup AWX data externally |
+| **🔄 Restore Data** | `./scripts/restore-awx-data.sh` | Restore from backup |
 
 ---
 
@@ -44,9 +46,15 @@ This document provides step-by-step commands for all cluster lifecycle operation
 
 ### **Scenario 3: "Something is broken, I want fresh start"**
 ```bash
+# IMPORTANT: Backup your data first!
+./scripts/backup-awx-data.sh
+
 # Complete rebuild
 ./scripts/cluster-manager.sh destroy
 ./scripts/cluster-manager.sh create
+
+# Restore your data (optional)
+./scripts/restore-awx-data.sh
 
 # Or interactive
 ./scripts/cluster-manager.sh
@@ -186,9 +194,16 @@ echo "Password: $(kubectl get secret awx-admin-password -n awx -o jsonpath='{.da
 
 **Purpose:** Remove everything for fresh start
 
+**⚠️ IMPORTANT: Backup your data first if you want to preserve it!**
+
 ```bash
 cd /Users/sreekanthmatturthi/sree/projects/kind-clusters/my-k8s-project/awx-on-kind-k8s-cluster
 
+# STEP 1: Backup your data (RECOMMENDED)
+echo "💾 Creating backup before destruction..."
+./scripts/backup-awx-data.sh
+
+# STEP 2: Destroy cluster
 echo "💥 Destroying AWX cluster..."
 echo "⚠️  This removes ALL data!"
 
@@ -208,6 +223,10 @@ if kind get clusters | grep -q "awx-cluster"; then
     echo "docker rm \$(docker ps -aq --filter name=awx-cluster)"
 else
     echo "✅ Cluster destroyed successfully!"
+    echo ""
+    echo "💡 To restore your data later:"
+    echo "   1. Recreate cluster: ./scripts/cluster-manager.sh create"
+    echo "   2. Restore data: ./scripts/restore-awx-data.sh"
 fi
 ```
 
@@ -299,6 +318,49 @@ echo "📊 Summary:"
 echo "   ✅ AWX version: v24.6.1"
 echo "   ✅ Host access: http://awx-192-168-1-243.nip.io:9080"
 echo "   ✅ Local access: http://localhost:9080"
+```
+
+---
+
+## 🔧 **Data Management Operations**
+
+### **💾 6. Backup AWX Data**
+
+**Purpose:** Create external backup of all AWX data
+
+```bash
+cd /Users/sreekanthmatturthi/sree/projects/kind-clusters/my-k8s-project/awx-on-kind-k8s-cluster
+
+# Run backup script
+./scripts/backup-awx-data.sh
+
+# Backup includes:
+# - Complete PostgreSQL database (inventories, projects, jobs)
+# - Persistent volume data (uploaded files, artifacts)
+# - Kubernetes resources (secrets, configurations)
+# - Admin credentials and metadata
+
+# Backup location: ~/awx-backups/YYYYMMDD_HHMMSS/
+# This is OUTSIDE your git repository (safe for git commits)
+```
+
+### **🔄 7. Restore AWX Data**
+
+**Purpose:** Restore AWX from a previous backup
+
+```bash
+cd /Users/sreekanthmatturthi/sree/projects/kind-clusters/my-k8s-project/awx-on-kind-k8s-cluster
+
+# Method 1: Interactive (shows available backups)
+./scripts/restore-awx-data.sh
+
+# Method 2: Direct restore from specific backup
+./scripts/restore-awx-data.sh 20241126_143022
+
+# Prerequisites:
+# 1. AWX cluster must exist and be running
+# 2. Backup must exist in ~/awx-backups/
+# 3. Will overwrite current AWX data
 ```
 
 ---

@@ -835,13 +835,14 @@ This AWX on Kind deployment provides:
 - Monitoring and alerting foundation
 - Security best practices
 - Scaling strategies
+- Complete backup/restore system
 
 **🚀 Next Steps:**
 1. Explore the interactive menu: `./scripts/setup.sh`
 2. Run your first automation job in AWX
 3. Experiment with scaling: `kubectl scale deployment awx-web --replicas=5 -n awx`
 4. Set up monitoring with Prometheus/Grafana
-5. Implement backup strategies
+5. Use backup system: `./scripts/backup-awx-data.sh`
 
 ---
 

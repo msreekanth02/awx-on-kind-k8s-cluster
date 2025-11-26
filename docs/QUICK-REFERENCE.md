@@ -26,7 +26,19 @@ open http://awx-192-168-1-243.nip.io:9080
 ./scripts/cluster-manager.sh restart    # Restart cluster
 ./scripts/cluster-manager.sh create     # Fresh deployment
 ./scripts/cluster-manager.sh access     # Smart portal access
+./scripts/cluster-manager.sh stop       # Stop cluster (preserve data)
+./scripts/cluster-manager.sh start      # Start stopped cluster
 ./scripts/cluster-manager.sh destroy    # Nuclear option ⚠️
+```
+
+### **💾 Data Backup & Restore**
+```bash
+# Backup AWX data externally (recommended before destroy)
+./scripts/backup-awx-data.sh
+
+# Restore from backup
+./scripts/restore-awx-data.sh           # Interactive
+./scripts/restore-awx-data.sh timestamp # Direct restore
 ```
 
 ### **🎮 Original Setup Menu**
@@ -57,8 +69,12 @@ open http://awx-192-168-1-243.nip.io:9080
 ./scripts/cluster-manager.sh restart
 
 # 3. Nuclear option (rebuilds everything)
+# IMPORTANT: Backup first!
+./scripts/backup-awx-data.sh
 ./scripts/cluster-manager.sh destroy
 ./scripts/cluster-manager.sh create
+# Restore data if needed
+./scripts/restore-awx-data.sh
 ```
 
 ### **🔄 Common Issues & Fixes**

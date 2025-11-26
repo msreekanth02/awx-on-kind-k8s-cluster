@@ -58,7 +58,8 @@ awx-migration-24.6.1-9rmqd             0/1     Completed ✅
 
 ### 🛠️ Maintenance & Operations
 - **Automated deployment** - one-command setup
-- **Backup capabilities** - built-in data protection
+- **Complete backup system** - external data preservation
+- **Full restore capabilities** - disaster recovery ready
 - **Multiple cleanup levels** - granular resource management  
 - **Comprehensive diagnostics** - troubleshooting tools
 
@@ -69,8 +70,9 @@ The AWX on Kind cluster is now **production-ready** with:
 1. **Latest stable software stack**
 2. **Streamlined 8-file repository** 
 3. **Comprehensive menu-driven management**
-4. **Full accessibility via browser**
-5. **Professional documentation**
+4. **External backup/restore system**
+5. **Full accessibility via browser**
+6. **Professional documentation**
 
 ### Quick Start Commands
 ```bash

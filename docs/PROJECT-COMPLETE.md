@@ -187,6 +187,17 @@ cd awx-on-kind-k8s-cluster
 - Admin credentials automatically provided
 - Self-healing, production-ready deployment
 - Comprehensive monitoring and maintenance tools
+- **NEW: External backup/restore system** for safe data management
+
+---
+
+## 🔄 **Latest Enhancement: Data Management**
+
+Added comprehensive backup/restore system:
+- **External storage**: `~/awx-backups/` (outside git repository)
+- **Complete backup**: Database, files, secrets, and configurations
+- **Safe operations**: Destroy cluster while preserving data
+- **Easy restoration**: Full environment recovery capability
 
 ---
 

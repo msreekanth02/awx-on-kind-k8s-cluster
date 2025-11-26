@@ -12,6 +12,7 @@ A streamlined, production-ready solution to deploy **AWX v24.6.1** using the lat
 - **🌐 Network Ready**: Configured for host IP access via nip.io
 - **📊 Real-time Monitoring**: Live status dashboards and health checks
 - **🔄 Self-Healing**: Automatic recovery and scaling capabilities
+- **💾 Data Management**: Complete backup/restore system for safe operations
 
 ## 🚀 Quick Start
 
@@ -47,6 +48,8 @@ awx-on-kind-k8s-cluster/              # 🧹 Production-ready repository
     ├── setup.sh                    # 🎮 MAIN: Comprehensive menu system
     ├── cluster-manager.sh          # 🔄 NEW: Complete cluster lifecycle manager  
     ├── access-portal.sh            # Simple portal access
+    ├── backup-awx-data.sh          # 💾 NEW: External data backup
+    ├── restore-awx-data.sh         # 🔄 NEW: Data restoration
     └── cleanup.sh                  # Resource cleanup
 ```
 
@@ -107,9 +110,11 @@ The comprehensive `scripts/setup.sh` provides 13 management options:
 # Access portal (smart detection)
 ./scripts/cluster-manager.sh access
 
-# Emergency rebuild
+# Emergency rebuild (with data preservation)
+./scripts/backup-awx-data.sh           # Backup first!
 ./scripts/cluster-manager.sh destroy
 ./scripts/cluster-manager.sh create
+./scripts/restore-awx-data.sh          # Restore data
 ```
 
 ## ⚡ Quick Access Commands
@@ -121,6 +126,8 @@ The comprehensive `scripts/setup.sh` provides 13 management options:
 | **🎮 Full Menu** | `./scripts/setup.sh` | Complete interactive management |
 | **🚀 Quick Launch** | `./setup.sh` | Wrapper script (calls scripts/setup.sh) |
 | **🔄 Cluster Manager** | `./scripts/cluster-manager.sh` | **NEW: Complete cluster lifecycle** |
+| **💾 Data Backup** | `./scripts/backup-awx-data.sh` | **NEW: External data backup** |
+| **🔄 Data Restore** | `./scripts/restore-awx-data.sh` | **NEW: Data restoration** |
 | **🌐 Portal Access** | `./scripts/access-portal.sh` | Direct portal access |
 | **🧹 Cleanup** | `./scripts/cleanup.sh` | Resource cleanup |
 
