@@ -254,17 +254,7 @@ restart_cluster() {
     print_status "working" "Stopping port-forward connections..."
     pkill -f "kubectl.*port-forward" 2>/dev/null || true
     
-    print_status "working" "Restarting Docker (this restarts Kind containers)..."
-    osascript -e 'quit app "Docker"' 2>/dev/null || true
-    sleep 5
-    open -a Docker
-    
-    print_status "working" "Waiting for Docker to start..."
-    until docker info > /dev/null 2>&1; do
-        echo -n "."
-        sleep 3
-    done
-    echo ""
+    print_status "success" "Cluster restart initiated - Docker remains running"
     
     print_status "working" "Verifying cluster connectivity..."
     local retries=0
@@ -323,16 +313,16 @@ stop_cluster() {
     kubectl scale deployment awx-web --replicas=0 -n "$AWX_NAMESPACE" 2>/dev/null || true
     kubectl scale deployment awx-task --replicas=0 -n "$AWX_NAMESPACE" 2>/dev/null || true
     
-    print_status "working" "Stopping Docker Desktop..."
-    osascript -e 'quit app "Docker"' 2>/dev/null || true
+    print_status "working" "Cleaning up port forwarding..."
+    pkill -f "kubectl.*port-forward" 2>/dev/null || true
     
-    print_status "success" "Cluster stopped successfully!"
+    print_status "success" "Cluster stopped successfully - Docker remains running"
     echo ""
     print_status "info" "Your AWX data is preserved and ready for restart"
     echo ""
     echo "💡 To start the cluster again:"
     echo "   → Run this script and choose option 3 (Start Cluster)"
-    echo "   → Or manually start Docker Desktop and scale deployments back up"
+    echo "   → Or scale deployments back up manually"
 }
 
 start_cluster() {
