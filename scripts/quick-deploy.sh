@@ -115,10 +115,30 @@ EOF
 deploy_awx_operator() {
     print_status "info" "Installing AWX Operator..."
     
-    kubectl apply -f https://raw.githubusercontent.com/ansible/awx-operator/devel/deploy/awx-operator.yaml
+    # Use the latest stable release tag
+    local AWX_OPERATOR_VERSION="2.19.1"
+    
+    # Create temporary directory for kustomization
+    local KUSTOMIZE_DIR="/tmp/awx-operator-deploy"
+    mkdir -p $KUSTOMIZE_DIR
+    
+    # Create kustomization file
+    cat > $KUSTOMIZE_DIR/kustomization.yaml << EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - github.com/ansible/awx-operator/config/default?ref=${AWX_OPERATOR_VERSION}
+images:
+  - name: quay.io/ansible/awx-operator
+    newTag: ${AWX_OPERATOR_VERSION}
+namespace: awx
+EOF
+    
+    kubectl apply -k $KUSTOMIZE_DIR
+    rm -rf $KUSTOMIZE_DIR
     
     print_status "info" "Waiting for AWX Operator to be ready..."
-    kubectl wait --for=condition=available --timeout=300s deployment/awx-operator-controller-manager -n awx-operator-system
+    kubectl wait --for=condition=available --timeout=300s deployment/awx-operator-controller-manager -n awx
     
     if [ $? -eq 0 ]; then
         print_status "success" "AWX Operator deployed successfully"
@@ -134,6 +154,20 @@ create_awx_instance() {
     # Create AWX namespace
     kubectl create namespace $AWX_NAMESPACE || true
     
+    # Create admin password secret first
+    cat > /tmp/awx-admin-password.yaml << EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: awx-admin-password
+  namespace: $AWX_NAMESPACE
+stringData:
+  password: $ADMIN_PASSWORD
+EOF
+    
+    kubectl apply -f /tmp/awx-admin-password.yaml
+    rm -f /tmp/awx-admin-password.yaml
+    
     # Create AWX instance with fixed naming for consistency
     cat > /tmp/awx-instance.yaml << EOF
 apiVersion: awx.ansible.com/v1beta1
@@ -144,29 +178,6 @@ metadata:
 spec:
   service_type: nodeport
   admin_user: admin
-  admin_password_secret_key: password
-  postgres_configuration_secret: awx-postgres-configuration
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: awx-admin-password
-  namespace: $AWX_NAMESPACE
-stringData:
-  password: $ADMIN_PASSWORD
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: awx-postgres-configuration
-  namespace: $AWX_NAMESPACE
-stringData:
-  host: awx-postgres-15
-  port: "5432"
-  database: $DB_NAME
-  username: awx
-  password: awx
-  type: managed
 EOF
 
     kubectl apply -f /tmp/awx-instance.yaml
@@ -183,17 +194,24 @@ wait_for_deployment() {
     local interval=15
     
     while [ $elapsed -lt $timeout ]; do
-        # Check if both web and task pods are running
-        local web_ready=$(kubectl get pods -n $AWX_NAMESPACE | grep -E "awx-web.*Running" | wc -l)
-        local task_ready=$(kubectl get pods -n $AWX_NAMESPACE | grep -E "awx-task.*Running" | wc -l)
-        local postgres_ready=$(kubectl get pods -n $AWX_NAMESPACE | grep -E "awx-postgres-15-0.*Running" | wc -l)
+        # Check if AWX pods are running using grep
+        local awx_task_running=$(kubectl get pods -n $AWX_NAMESPACE 2>/dev/null | grep "awx-task" | grep -c "Running" || echo "0")
+        local awx_web_running=$(kubectl get pods -n $AWX_NAMESPACE 2>/dev/null | grep "awx-web" | grep -c "Running" || echo "0")
+        local postgres_ready=$(kubectl get pods -n $AWX_NAMESPACE 2>/dev/null | grep "awx-postgres" | grep -c "Running" || echo "0")
         
-        if [ "$web_ready" -gt 0 ] && [ "$task_ready" -gt 0 ] && [ "$postgres_ready" -gt 0 ]; then
-            print_status "success" "AWX deployment completed successfully"
-            return 0
+        if [ "$awx_task_running" -gt 0 ] && [ "$awx_web_running" -gt 0 ] && [ "$postgres_ready" -gt 0 ]; then
+            # Additional check: ensure awx-task is fully ready (4/4)
+            local task_ready=$(kubectl get pods -n $AWX_NAMESPACE 2>/dev/null | grep "awx-task" | grep "4/4" | grep -c "Running" || echo "0")
+            local web_ready=$(kubectl get pods -n $AWX_NAMESPACE 2>/dev/null | grep "awx-web" | grep "3/3" | grep -c "Running" || echo "0")
+            
+            if [ "$task_ready" -gt 0 ] && [ "$web_ready" -gt 0 ]; then
+                print_status "success" "AWX deployment completed successfully"
+                return 0
+            fi
         fi
         
         echo -e "${YELLOW}⏳ Waiting for AWX pods to be ready... (${elapsed}s/${timeout}s)${NC}"
+        kubectl get pods -n $AWX_NAMESPACE 2>/dev/null || echo "No pods yet..."
         sleep $interval
         elapsed=$((elapsed + interval))
     done
@@ -211,18 +229,21 @@ setup_network_access() {
     pkill -f "kubectl.*port-forward.*$SERVICE_PORT" 2>/dev/null || true
     sleep 2
     
+    # Get the actual service name (it's named after the AWX instance)
+    local service_name="${AWX_INSTANCE_NAME}-service"
+    
     # Start port forwarding in background with network access
-    kubectl port-forward svc/awx-service -n $AWX_NAMESPACE $SERVICE_PORT:80 --address 0.0.0.0 &
+    kubectl port-forward svc/$service_name -n $AWX_NAMESPACE $SERVICE_PORT:80 --address 0.0.0.0 &
     
     # Give it time to start
     sleep 5
     
     # Test local connectivity
     local test_result=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$SERVICE_PORT/ 2>/dev/null)
-    if [ "$test_result" = "200" ]; then
+    if [ "$test_result" = "200" ] || [ "$test_result" = "302" ]; then
         print_status "success" "Network access configured successfully"
     else
-        print_status "warning" "Port forwarding started but portal not yet ready"
+        print_status "warning" "Port forwarding started but portal not yet ready (HTTP $test_result)"
     fi
 }
 
