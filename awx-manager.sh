@@ -102,6 +102,24 @@ check_dependencies() {
         echo -e "${YELLOW}Please install the missing dependencies before continuing.${NC}"
         exit 1
     fi
+    
+    # Check Docker daemon is actually running
+    if ! docker info &>/dev/null; then
+        print_status "warning" "Docker daemon is not running. Attempting to start Docker Desktop..."
+        open -a Docker 2>/dev/null || true
+        local retries=0
+        while ! docker info &>/dev/null && [ $retries -lt 15 ]; do
+            echo -n "."
+            sleep 2
+            retries=$((retries + 1))
+        done
+        echo
+        if ! docker info &>/dev/null; then
+            print_status "error" "Docker daemon is still not running. Please start Docker Desktop and try again."
+            exit 1
+        fi
+        print_status "success" "Docker daemon is now running"
+    fi
 }
 
 cluster_status() {
@@ -166,6 +184,8 @@ cluster_status() {
             # Database status
             echo -e "\n${YELLOW}💾 Database Status:${NC}"
             USER_COUNT=$(kubectl exec -it awx-postgres-15-0 -n $AWX_NAMESPACE -- psql -U awx -t -c "SELECT COUNT(*) FROM auth_user;" 2>/dev/null | tr -d ' \n\r' || echo "0")
+            USER_COUNT="${USER_COUNT:-0}"
+            [[ "$USER_COUNT" =~ ^[0-9]+$ ]] || USER_COUNT=0
             if [ "$USER_COUNT" -gt "0" ]; then
                 print_status "success" "Database operational with $USER_COUNT users"
             else
@@ -226,11 +246,31 @@ deploy_cluster() {
     
     print_status "info" "Installing AWX Operator..."
     
-    # Install AWX Operator using kustomize
+    # Install AWX Operator using kustomize from main branch.
     kubectl apply -k https://github.com/ansible/awx-operator/config/default/
     
-    # Wait for the operator namespace to be created
+    # Wait for the deployment to be created
     sleep 5
+    
+    # --- Patch 1: Remove kube-rbac-proxy sidecar if present (gcr.io image no longer available) ---
+    PROXY_IDX=$(kubectl get deployment awx-operator-controller-manager -n awx \
+        -o jsonpath='{range .spec.template.spec.containers[*]}{.name}{"\n"}{end}' 2>/dev/null \
+        | awk '/kube-rbac-proxy/{print NR-1}')
+    if [ -n "$PROXY_IDX" ]; then
+        print_status "warning" "Removing unavailable kube-rbac-proxy sidecar (index $PROXY_IDX) from operator deployment..."
+        kubectl patch deployment awx-operator-controller-manager -n awx --type=json \
+            -p="[{\"op\": \"remove\", \"path\": \"/spec/template/spec/containers/${PROXY_IDX}\"}]"
+        sleep 3
+    fi
+
+    # --- Patch 2: Remove --metrics-require-rbac flag if present (not supported by current awx-operator image) ---
+    if kubectl get deployment awx-operator-controller-manager -n awx \
+        -o jsonpath='{.spec.template.spec.containers[0].args}' 2>/dev/null | grep -q "metrics-require-rbac"; then
+        print_status "warning" "Patching out unsupported --metrics-require-rbac flag from operator deployment..."
+        kubectl patch deployment awx-operator-controller-manager -n awx --type=json \
+            -p='[{"op": "remove", "path": "/spec/template/spec/containers/0/args/0"}]'
+        sleep 3
+    fi
     
     print_status "info" "Waiting for AWX Operator to be ready..."
     # Wait for operator deployment in the AWX namespace (not awx-operator-system)
@@ -783,6 +823,9 @@ main() {
     
     # Create backup directory
     mkdir -p "$BACKUP_DIR"
+    
+    # Validate dependencies and Docker daemon before showing menu
+    check_dependencies
     
     while true; do
         show_main_menu
